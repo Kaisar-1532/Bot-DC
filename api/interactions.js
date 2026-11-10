@@ -51,7 +51,7 @@ async function getProfile(userId) {
     robloxFetch(`https://friends.roblox.com/v1/users/${userId}/followers/count`),
     robloxFetch(`https://friends.roblox.com/v1/users/${userId}/followings/count`),
     robloxFetch(
-      `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=420x420&format=Png&isCircular=false`
+      `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
     ),
   ]);
   if (!user) return null;
@@ -79,7 +79,7 @@ function buildEmbed({ user, friends, followers, followings, avatar }) {
       ? user.description.slice(0, 500)
       : "*Tidak ada deskripsi.*",
     color: user.isBanned ? 0xed4245 : 0x00a2ff,
-    thumbnail: avatar ? { url: avatar } : undefined,
+    image: avatar ? { url: avatar } : undefined,
     fields: [
       { name: "User ID", value: `\`${user.id}\``, inline: true },
       { name: "Dibuat", value: `<t:${created}:D>\n(<t:${created}:R>)`, inline: true },
@@ -91,6 +91,22 @@ function buildEmbed({ user, friends, followers, followings, avatar }) {
     footer: { text: "Data dari Roblox API" },
     timestamp: new Date().toISOString(),
   };
+}
+
+function buildButtons(user) {
+  return [
+    {
+      type: 1, // action row
+      components: [
+        {
+          type: 2, // button
+          style: 5, // link
+          label: "Buka Profil Roblox",
+          url: `https://www.roblox.com/users/${user.id}/profile`,
+        },
+      ],
+    },
+  ];
 }
 
 function reply(content, extra = {}) {
@@ -128,7 +144,10 @@ export async function POST(request) {
       return reply("❌ Gagal mengambil data dari Roblox. Coba lagi sebentar.", { flags: 64 });
     }
 
-    return reply("", { embeds: [buildEmbed(profile)] });
+    return reply("", {
+      embeds: [buildEmbed(profile)],
+      components: buildButtons(profile.user),
+    });
   }
 
   return reply("Perintah tidak dikenal.", { flags: 64 });
