@@ -1,0 +1,12 @@
+{
+  "name": "roblox-profile-discord-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "register": "node --env-file=.env scripts/register-commands.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
