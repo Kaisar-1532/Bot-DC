@@ -2,8 +2,10 @@ import { createPublicKey, verify } from "node:crypto";
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
+const MESSAGE_COMPONENT = 3;
 const PONG = 1;
 const CHANNEL_MESSAGE = 4;
+const UPDATE_MESSAGE = 7;
 
 const SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
@@ -56,12 +58,14 @@ async function getProfile(userId) {
     ),
   ]);
   if (!user) return null;
+  const groupList = Array.isArray(groups?.data) ? groups.data : null;
   return {
     user,
     friends: friends?.count,
     followers: followers?.count,
     followings: followings?.count,
-    groups: Array.isArray(groups?.data) ? groups.data.length : undefined,
+    groupList,
+    groups: groupList ? groupList.length : undefined,
     avatar: thumb?.data?.[0]?.imageUrl ?? null,
   };
 }
@@ -76,19 +80,22 @@ function ageLabel(days) {
   return "Established (2+ years)";
 }
 
-function buildEmbed({ user, friends, followers, followings, groups, avatar }) {
+function heading(user) {
+  const url = `https://www.roblox.com/users/${user.id}/profile`;
+  return `### [${user.displayName}](${url}) (\`@${user.name}\`)`;
+}
+
+function buildOverview(p) {
+  const { user, friends, followers, followings, groups, avatar } = p;
   const createdMs = new Date(user.created).getTime();
   const created = Math.floor(createdMs / 1000);
   const days = Math.floor((Date.now() - createdMs) / 86400000);
-  const profileUrl = `https://www.roblox.com/users/${user.id}/profile`;
 
   const bio = (user.description ?? "").trim().slice(0, 300);
-  const bioText = bio
-    ? bio.split(/\r?\n/).filter(Boolean).join(" ")
-    : "Tidak ada bio.";
+  const bioText = bio ? bio.split(/\r?\n/).filter(Boolean).join(" ") : "Tidak ada bio.";
 
   const description = [
-    `### [${user.displayName}](${profileUrl}) (\`@${user.name}\`)`,
+    heading(user),
     `> **User ID:** \`${user.id}\``,
     `> **Bio:** ${bioText}`,
     "",
@@ -107,20 +114,58 @@ function buildEmbed({ user, friends, followers, followings, groups, avatar }) {
   };
 }
 
-function buildButtons(user) {
-  return [
+function buildGroups(p) {
+  const { user, groupList } = p;
+  const MAX = 25;
+  let body;
+  if (!groupList) {
+    body = "Gagal mengambil daftar grup. Coba lagi sebentar.";
+  } else if (groupList.length === 0) {
+    body = "Tidak bergabung di grup mana pun.";
+  } else {
+    const lines = groupList
+      .slice(0, MAX)
+      .map((g) => `• **${g.group.name}** — \`${g.role.name}\``);
+    if (groupList.length > MAX) lines.push(`…dan ${groupList.length - MAX} grup lainnya`);
+    body = lines.join("\n");
+  }
+
+  return {
+    description: [heading(user), `**Groups (${fmt(groupList?.length)})**`, "", body]
+      .join("\n")
+      .slice(0, 4000),
+    color: 0x00a2ff,
+    footer: { text: "Data dari Roblox API" },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function buildButtons(p, active) {
+  const { user, avatar, groups } = p;
+  const row = [
     {
-      type: 1,
-      components: [
-        {
-          type: 2,
-          style: 5,
-          label: "Buka Profil Roblox",
-          url: `https://www.roblox.com/users/${user.id}/profile`,
-        },
-      ],
+      type: 2,
+      style: 2,
+      label: "Overview",
+      custom_id: `overview:${user.id}`,
+      disabled: active === "overview",
+    },
+    {
+      type: 2,
+      style: 2,
+      label: `Groups (${fmt(groups)})`,
+      custom_id: `groups:${user.id}`,
+      disabled: active === "groups",
+    },
+    {
+      type: 2,
+      style: 5,
+      label: "Profile",
+      url: `https://www.roblox.com/users/${user.id}/profile`,
     },
   ];
+  if (avatar) row.push({ type: 2, style: 5, label: "Avatar", url: avatar });
+  return [{ type: 1, components: row }];
 }
 
 function reply(content, extra = {}) {
@@ -146,6 +191,7 @@ export async function POST(request) {
     return Response.json({ type: PONG });
   }
 
+  // Slash command
   if (interaction.type === APPLICATION_COMMAND && interaction.data.name === "roblox") {
     const input = interaction.data.options?.find((o) => o.name === "user")?.value?.trim();
     if (!input) return reply("Masukkan username atau User ID Roblox.", { flags: 64 });
@@ -159,9 +205,25 @@ export async function POST(request) {
     }
 
     return reply("", {
-      embeds: [buildEmbed(profile)],
-      components: buildButtons(profile.user),
+      embeds: [buildOverview(profile)],
+      components: buildButtons(profile, "overview"),
     });
+  }
+
+  // Tombol Overview / Groups
+  if (interaction.type === MESSAGE_COMPONENT) {
+    const [view, id] = String(interaction.data.custom_id).split(":");
+    if ((view === "overview" || view === "groups") && /^\d+$/.test(id)) {
+      const profile = await getProfile(id);
+      if (!profile) {
+        return reply("❌ Gagal mengambil data dari Roblox. Coba lagi sebentar.", { flags: 64 });
+      }
+      const embed = view === "groups" ? buildGroups(profile) : buildOverview(profile);
+      return Response.json({
+        type: UPDATE_MESSAGE,
+        data: { content: "", embeds: [embed], components: buildButtons(profile, view) },
+      });
+    }
   }
 
   return reply("Perintah tidak dikenal.", { flags: 64 });
