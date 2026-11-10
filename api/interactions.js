@@ -45,11 +45,12 @@ async function findUserId(input) {
 }
 
 async function getProfile(userId) {
-  const [user, friends, followers, followings, thumb] = await Promise.all([
+  const [user, friends, followers, followings, groups, thumb] = await Promise.all([
     robloxFetch(`https://users.roblox.com/v1/users/${userId}`),
     robloxFetch(`https://friends.roblox.com/v1/users/${userId}/friends/count`),
     robloxFetch(`https://friends.roblox.com/v1/users/${userId}/followers/count`),
     robloxFetch(`https://friends.roblox.com/v1/users/${userId}/followings/count`),
+    robloxFetch(`https://groups.roblox.com/v1/users/${userId}/groups/roles`),
     robloxFetch(
       `https://thumbnails.roblox.com/v1/users/avatar?userIds=${userId}&size=420x420&format=Png&isCircular=false`
     ),
@@ -60,34 +61,47 @@ async function getProfile(userId) {
     friends: friends?.count,
     followers: followers?.count,
     followings: followings?.count,
+    groups: Array.isArray(groups?.data) ? groups.data.length : undefined,
     avatar: thumb?.data?.[0]?.imageUrl ?? null,
   };
 }
 
 const fmt = (n) => (typeof n === "number" ? n.toLocaleString("id-ID") : "—");
+const yesNo = (v) => (v ? "Yes" : "No");
 
-function buildEmbed({ user, friends, followers, followings, avatar }) {
-  const created = Math.floor(new Date(user.created).getTime() / 1000);
-  const badges = [];
-  if (user.hasVerifiedBadge) badges.push("✅ Verified");
-  if (user.isBanned) badges.push("🚫 Banned");
+function ageLabel(days) {
+  if (days < 30) return "New (<1 month)";
+  if (days < 365) return "Growing (<1 year)";
+  if (days < 730) return "Experienced (1+ year)";
+  return "Established (2+ years)";
+}
+
+function buildEmbed({ user, friends, followers, followings, groups, avatar }) {
+  const createdMs = new Date(user.created).getTime();
+  const created = Math.floor(createdMs / 1000);
+  const days = Math.floor((Date.now() - createdMs) / 86400000);
+  const profileUrl = `https://www.roblox.com/users/${user.id}/profile`;
+
+  const bio = (user.description ?? "").trim().slice(0, 300);
+  const bioText = bio
+    ? bio.split(/\r?\n/).filter(Boolean).join(" ")
+    : "Tidak ada bio.";
+
+  const description = [
+    `### [${user.displayName}](${profileUrl}) (\`@${user.name}\`)`,
+    `> **User ID:** \`${user.id}\``,
+    `> **Bio:** ${bioText}`,
+    "",
+    `**Joined:** <t:${created}:D> (<t:${created}:R>)`,
+    `**Account Age:** \`${fmt(days)} days\` (\`${ageLabel(days)}\`)`,
+    `**Friends:** \`${fmt(friends)}\` | **Followers:** \`${fmt(followers)}\` | **Following:** \`${fmt(followings)}\``,
+    `**Verified:** \`${yesNo(user.hasVerifiedBadge)}\` | **Banned:** \`${yesNo(user.isBanned)}\` | **Groups:** \`${fmt(groups)}\``,
+  ].join("\n");
 
   return {
-    title: `${user.displayName} (@${user.name})${user.hasVerifiedBadge ? " ✅" : ""}`,
-    url: `https://www.roblox.com/users/${user.id}/profile`,
-    description: user.description?.trim()
-      ? user.description.slice(0, 500)
-      : "*Tidak ada deskripsi.*",
+    description,
     color: user.isBanned ? 0xed4245 : 0x00a2ff,
     image: avatar ? { url: avatar } : undefined,
-    fields: [
-      { name: "User ID", value: `\`${user.id}\``, inline: true },
-      { name: "Dibuat", value: `<t:${created}:D>\n(<t:${created}:R>)`, inline: true },
-      { name: "Status", value: badges.join(" • ") || "Normal", inline: true },
-      { name: "Teman", value: fmt(friends), inline: true },
-      { name: "Pengikut", value: fmt(followers), inline: true },
-      { name: "Mengikuti", value: fmt(followings), inline: true },
-    ],
     footer: { text: "Data dari Roblox API" },
     timestamp: new Date().toISOString(),
   };
@@ -96,11 +110,11 @@ function buildEmbed({ user, friends, followers, followings, avatar }) {
 function buildButtons(user) {
   return [
     {
-      type: 1, // action row
+      type: 1,
       components: [
         {
-          type: 2, // button
-          style: 5, // link
+          type: 2,
+          style: 5,
           label: "Buka Profil Roblox",
           url: `https://www.roblox.com/users/${user.id}/profile`,
         },
