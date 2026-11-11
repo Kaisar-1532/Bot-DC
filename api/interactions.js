@@ -1,8 +1,10 @@
 import { createPublicKey, verify } from "node:crypto";
+import { handleIntroOpen, handleIntroSubmit } from "../lib/intro.js";
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
 const MESSAGE_COMPONENT = 3;
+const MODAL_SUBMIT = 5;
 const PONG = 1;
 const CHANNEL_MESSAGE = 4;
 const UPDATE_MESSAGE = 7;
@@ -22,6 +24,7 @@ function verifyDiscordSignature(rawBody, signature, timestamp, publicKeyHex) {
   }
 }
 
+// ---------- Roblox ----------
 async function robloxFetch(url, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 2300);
@@ -123,17 +126,12 @@ function buildGroups(p) {
   } else if (groupList.length === 0) {
     body = "Tidak bergabung di grup mana pun.";
   } else {
-    const lines = groupList
-      .slice(0, MAX)
-      .map((g) => `• **${g.group.name}** — \`${g.role.name}\``);
+    const lines = groupList.slice(0, MAX).map((g) => `• **${g.group.name}** — \`${g.role.name}\``);
     if (groupList.length > MAX) lines.push(`…dan ${groupList.length - MAX} grup lainnya`);
     body = lines.join("\n");
   }
-
   return {
-    description: [heading(user), `**Groups (${fmt(groupList?.length)})**`, "", body]
-      .join("\n")
-      .slice(0, 4000),
+    description: [heading(user), `**Groups (${fmt(groupList?.length)})**`, "", body].join("\n").slice(0, 4000),
     color: 0x00a2ff,
     footer: { text: "Data dari Roblox API" },
     timestamp: new Date().toISOString(),
@@ -143,26 +141,9 @@ function buildGroups(p) {
 function buildButtons(p, active) {
   const { user, avatar, groups } = p;
   const row = [
-    {
-      type: 2,
-      style: 2,
-      label: "Overview",
-      custom_id: `overview:${user.id}`,
-      disabled: active === "overview",
-    },
-    {
-      type: 2,
-      style: 2,
-      label: `Groups (${fmt(groups)})`,
-      custom_id: `groups:${user.id}`,
-      disabled: active === "groups",
-    },
-    {
-      type: 2,
-      style: 5,
-      label: "Profile",
-      url: `https://www.roblox.com/users/${user.id}/profile`,
-    },
+    { type: 2, style: 2, label: "Overview", custom_id: `overview:${user.id}`, disabled: active === "overview" },
+    { type: 2, style: 2, label: `Groups (${fmt(groups)})`, custom_id: `groups:${user.id}`, disabled: active === "groups" },
+    { type: 2, style: 5, label: "Profile", url: `https://www.roblox.com/users/${user.id}/profile` },
   ];
   if (avatar) row.push({ type: 2, style: 5, label: "Avatar", url: avatar });
   return [{ type: 1, components: row }];
@@ -172,6 +153,7 @@ function reply(content, extra = {}) {
   return Response.json({ type: CHANNEL_MESSAGE, data: { content, ...extra } });
 }
 
+// ---------- Handler utama ----------
 export async function POST(request) {
   const signature = request.headers.get("x-signature-ed25519");
   const timestamp = request.headers.get("x-signature-timestamp");
@@ -191,7 +173,7 @@ export async function POST(request) {
     return Response.json({ type: PONG });
   }
 
-  // Slash command
+  // Slash command /roblox
   if (interaction.type === APPLICATION_COMMAND && interaction.data.name === "roblox") {
     const input = interaction.data.options?.find((o) => o.name === "user")?.value?.trim();
     if (!input) return reply("Masukkan username atau User ID Roblox.", { flags: 64 });
@@ -203,16 +185,26 @@ export async function POST(request) {
     if (!profile) {
       return reply("❌ Gagal mengambil data dari Roblox. Coba lagi sebentar.", { flags: 64 });
     }
-
     return reply("", {
       embeds: [buildOverview(profile)],
       components: buildButtons(profile, "overview"),
     });
   }
 
-  // Tombol Overview / Groups
+  // Tombol
   if (interaction.type === MESSAGE_COMPONENT) {
-    const [view, id] = String(interaction.data.custom_id).split(":");
+    const customId = String(interaction.data.custom_id);
+
+    if (customId === "intro:open") {
+      try {
+        return Response.json(await handleIntroOpen(interaction));
+      } catch (e) {
+        console.error(e);
+        return reply("Something went wrong. Please try again.", { flags: 64 });
+      }
+    }
+
+    const [view, id] = customId.split(":");
     if ((view === "overview" || view === "groups") && /^\d+$/.test(id)) {
       const profile = await getProfile(id);
       if (!profile) {
@@ -223,6 +215,16 @@ export async function POST(request) {
         type: UPDATE_MESSAGE,
         data: { content: "", embeds: [embed], components: buildButtons(profile, view) },
       });
+    }
+  }
+
+  // Form Introduction dikirim
+  if (interaction.type === MODAL_SUBMIT && interaction.data.custom_id === "intro:submit") {
+    try {
+      return Response.json(await handleIntroSubmit(interaction));
+    } catch (e) {
+      console.error(e);
+      return reply("Something went wrong. Please try again.", { flags: 64 });
     }
   }
 
