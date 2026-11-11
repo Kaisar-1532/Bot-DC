@@ -1,5 +1,6 @@
 import { getJSON, setJSON, redis, pipeline } from "./redis.js";
 import { bot, avatarUrl } from "./discord.js";
+import { redis } from '../lib/redis.js';
 
 export const MAX_QUESTIONS = 5;
 const EPHEMERAL = 64;
