@@ -1,5 +1,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { handleIntroOpen, handleIntroSubmit } from "../lib/intro.js";
+import { detect, handleVideo, handleComments } from "../lib/video.js";
+import { respondDeferred } from "../lib/defer.js";
 
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -173,6 +175,16 @@ export async function POST(request) {
     return Response.json({ type: PONG });
   }
 
+  // Slash command /video
+  if (interaction.type === APPLICATION_COMMAND && interaction.data.name === "video") {
+    const link = interaction.data.options?.find((o) => o.name === "link")?.value;
+    if (!detect(link)) {
+      return reply("❌ That doesn't look like a valid link.", { flags: 64 });
+    }
+    const origin = (process.env.PUBLIC_URL || new URL(request.url).origin).replace(/\/$/, "");
+    return respondDeferred(interaction, (ms) => handleVideo(link, ms, origin), false);
+  }
+
   // Slash command /roblox
   if (interaction.type === APPLICATION_COMMAND && interaction.data.name === "roblox") {
     const input = interaction.data.options?.find((o) => o.name === "user")?.value?.trim();
@@ -194,6 +206,10 @@ export async function POST(request) {
   // Tombol
   if (interaction.type === MESSAGE_COMPONENT) {
     const customId = String(interaction.data.custom_id);
+
+    if (customId.startsWith("vid:cm:")) {
+      return respondDeferred(interaction, (ms) => handleComments(customId.slice(7), ms), true);
+    }
 
     if (customId === "intro:open") {
       try {
